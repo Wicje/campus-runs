@@ -131,6 +131,90 @@ const simulateRandomRequester = (): string => {
   return "Student Request " + Math.floor(10 + Math.random() * 89);
 };
 
+const formatInlineBold = (text: string) => {
+  const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={idx} className="text-white font-bold">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={idx} className="bg-slate-900 border border-slate-800 text-emerald-400 font-mono text-xs px-1 py-0.5 rounded">{part.slice(1, -1)}</code>;
+    }
+    return part;
+  });
+};
+
+const renderFormattedText = (text: string) => {
+  if (!text) return null;
+  const paragraphs = text.split("\n\n");
+  
+  return paragraphs.map((para, pIdx) => {
+    if (para.startsWith("```")) {
+      const codeText = para.replace(/```[a-z]*\n?/i, "").replace(/```$/, "");
+      return (
+        <pre key={pIdx} className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto my-3 select-all leading-relaxed relative group">
+          <code className="block whitespace-pre-wrap">{codeText}</code>
+        </pre>
+      );
+    }
+
+    if (para.startsWith("- ") || para.startsWith("* ")) {
+      const items = para.split(/\n[-*]\s+/);
+      return (
+        <ul key={pIdx} className="list-disc pl-5 my-2.5 space-y-1.5 text-slate-300 text-xs md:text-sm">
+          {items.map((item, iIdx) => {
+            const cleanItem = item.startsWith("- ") || item.startsWith("* ") ? item.substring(2) : item;
+            return <li key={iIdx}>{formatInlineBold(cleanItem)}</li>;
+          })}
+        </ul>
+      );
+    }
+
+    if (/^\d+\.\s+/.test(para)) {
+      const items = para.split(/\n\d+\.\s+/);
+      return (
+        <ol key={pIdx} className="list-decimal pl-5 my-2.5 space-y-1.5 text-slate-300 text-xs md:text-sm">
+          {items.map((item, iIdx) => {
+            const cleanItem = /^\d+\.\s+/.test(item) ? item.replace(/^\d+\.\s+/, "") : item;
+            return <li key={iIdx}>{formatInlineBold(cleanItem)}</li>;
+          })}
+        </ol>
+      );
+    }
+
+    if (para.startsWith("> ")) {
+      const cleanQuote = para.replace(/^>\s+/, "");
+      return (
+        <blockquote key={pIdx} className="border-l-4 border-emerald-500 bg-slate-950 p-3 rounded-r-lg my-2 text-xs md:text-sm italic text-slate-300">
+          {formatInlineBold(cleanQuote)}
+        </blockquote>
+      );
+    }
+
+    if (para.startsWith("### ")) {
+      return (
+        <h4 key={pIdx} className="text-sm font-bold text-white uppercase tracking-wider font-mono mt-4 mb-2">
+          {formatInlineBold(para.substring(4))}
+        </h4>
+      );
+    }
+    
+    if (para.startsWith("## ")) {
+      return (
+        <h3 key={pIdx} className="text-base font-bold text-emerald-400 font-mono mt-4 mb-2">
+          {formatInlineBold(para.substring(3))}
+        </h3>
+      );
+    }
+
+    return (
+      <p key={pIdx} className="text-xs md:text-sm text-slate-300 leading-relaxed my-1.5">
+        {formatInlineBold(para)}
+      </p>
+    );
+  });
+};
+
 export default function RunsMVP() {
   // Navigation State: 'feed', 'create', 'map', 'escrow', 'playbook'
   const [activeTab, setActiveTab] = useState<string>("feed");
@@ -262,6 +346,21 @@ export default function RunsMVP() {
   const [isParsingAI, setIsParsingAI] = useState<boolean>(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  // Dedicated AI Copilot Chat state
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "model"; content: string }>>([
+    {
+      role: "model",
+      content: "Hi there! I am **Adaugo**, your AI Dispatch Copilot for Runs UNN. 🦁\n\nI can help you price your running errands, generate highly optimized WhatsApp group-alert posts, advise on route consolidation, or explain student escrow protection on our campus.\n\nWhat campus run can I help you plan or optimize today?"
+    }
+  ]);
+  const [chatInput, setChatInput] = useState<string>("");
+  const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
+
+  // AI WhatsApp Errand Enhancer state
+  const [enhancerRawInput, setEnhancerRawInput] = useState<string>("buy okpa for 500 at chitis to slessor rm 22 fast");
+  const [enhancerEnhancedOutput, setEnhancerEnhancedOutput] = useState<string>("");
+  const [isEnhancingAI, setIsEnhancingAI] = useState<boolean>(false);
+
   // Escrow finance counters
   const [accumulatedCommissions, setAccumulatedCommissions] = useState<number>(650);
   const [totalDisbursedToRunners, setTotalDisbursedToRunners] = useState<number>(3100);
@@ -349,6 +448,81 @@ export default function RunsMVP() {
       handleDirectMvpDispatch();
     } finally {
       setIsParsingAI(false);
+    }
+  };
+
+  const handleSendChatMessage = async (textToSend?: string) => {
+    const messageText = textToSend || chatInput;
+    if (!messageText.trim()) return;
+
+    const userMsg = { role: "user" as const, content: messageText };
+    setChatMessages(prev => [...prev, userMsg]);
+    if (!textToSend) setChatInput("");
+    setIsChatLoading(true);
+
+    try {
+      const response = await fetch("/app/api/gemini/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: messageText,
+          history: chatMessages.map(m => ({ role: m.role, content: m.content }))
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Chat dispatch endpoint error");
+      }
+
+      const data = await response.json();
+      setChatMessages(prev => [...prev, { role: "model", content: data.text }]);
+    } catch {
+      // Offline fallback heuristic response
+      const fallbackAnswer = `**🤖 Offline Connection Note:** Couldn't reach central server, but here is my campus dispatcher heuristic check:
+A standard rate for "${messageText}" is approx **₦600 NGN**. 
+Remember:
+- Use *Chitis Fast Food* for food deliveries;
+- Outages from Sub-station require +₦300 staircase effort surcharges;
+- Safety: Ensure payments are verified in the Escrow system before starting!`;
+      setChatMessages(prev => [...prev, { role: "model", content: fallbackAnswer }]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleEnhanceWhatsAppPost = async () => {
+    if (!enhancerRawInput.trim()) return;
+    setIsEnhancingAI(true);
+    try {
+      const response = await fetch("/app/api/gemini/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: `Please convert this raw student errand request into an optimized, highly engaging, WhatsApp-ready campus dispatch notice styled with appropriate emojis, headers, price, and campus locations: "${enhancerRawInput}". Keep it brief and ready to copy to a student group.`
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Enhancer AI route failed");
+      }
+
+      const data = await response.json();
+      setEnhancerEnhancedOutput(data.text);
+    } catch {
+      // Local preset fallback
+      const output = `🔔 *[Runs UNN Escrow Active]* 
+🏃‍♂️ *Campus Errand Alert!*
+
+📍 *From:* Chitis Fast Food
+📍 *To:* Mary Slessor Hall (Block C)
+📄 *Task:* ${enhancerRawInput}
+💰 *Offer:* ₦650 delivery fee (Held in Escrow)
+⚡ *Urgency:* ASAP / Sharp
+
+_👉 Lock thread code or DM Runs Bot to secure instantly!_`;
+      setEnhancerEnhancedOutput(output);
+    } finally {
+      setIsEnhancingAI(false);
     }
   };
 
@@ -567,6 +741,7 @@ export default function RunsMVP() {
             { id: "create", label: "Dispatch Errand", icon: PlusCircle },
             { id: "map", label: "Interactive Map", icon: MapIcon },
             { id: "escrow", label: "Escrow & Surge", icon: Wallet },
+            { id: "ai", label: "AI Copilot Desk", icon: Sparkles },
             { id: "playbook", label: "Product Specs & Strategy", icon: BookOpen }
           ].map((item) => {
             const Icon = item.icon;
@@ -590,12 +765,13 @@ export default function RunsMVP() {
       </nav>
 
       {/* MOBILE NATIVE FIXED BOTTOM NAVIGATION BAR */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 py-2.5 px-3 flex justify-around items-center z-50">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 py-2px px-2 flex justify-around items-center z-50">
         {[
           { id: "feed", label: "Feed", icon: Activity },
           { id: "create", label: "Dispatch", icon: PlusCircle },
           { id: "map", label: "Map", icon: MapIcon },
           { id: "escrow", label: "Escrow", icon: Wallet },
+          { id: "ai", label: "AI Copilot", icon: Sparkles },
           { id: "playbook", label: "Playbook", icon: BookOpen }
         ].map((item) => {
           const Icon = item.icon;
@@ -604,14 +780,14 @@ export default function RunsMVP() {
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 px-1.5 rounded-xl transition-all cursor-pointer ${
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-1 px-1 rounded-xl transition-all cursor-pointer ${
                 active 
                   ? "text-[#008751] font-extrabold" 
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              <Icon className="h-5 w-5" />
-              <span className="text-[9px] font-mono tracking-tight leading-none">{item.label}</span>
+              <Icon className="h-4 w-4" />
+              <span className="text-[8px] font-mono tracking-tight leading-none">{item.label}</span>
             </button>
           );
         })}
@@ -1613,6 +1789,248 @@ export default function RunsMVP() {
                   3. Runner purchases items with secure tracking.<br />
                   4. Photo handover verification triggers payouts!
                 </p>
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
+        {/* SCREEN SECTION: AI COPILOT WORKSPACE DESK */}
+        {activeTab === "ai" && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            {/* Interactive Chat Console (7/12 Columns) */}
+            <div className="col-span-1 lg:col-span-7 bg-slate-950 border border-slate-800 rounded-3xl p-5 md:p-6 shadow-xl flex flex-col gap-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-emerald-950 border border-[#008751]/30 flex items-center justify-center text-emerald-400 font-extrabold text-lg relative">
+                    🦁
+                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 bg-emerald-400 border border-slate-950 rounded-full animate-pulse"></span>
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-white flex items-center gap-1.5 font-mono">
+                      ADAUGO DISPATCH AI
+                      <span className="text-[9px] bg-[#008751]/20 text-[#008751] font-bold px-1.5 py-0.5 rounded uppercase">Vetted Bot</span>
+                    </h2>
+                    <p className="text-[11px] text-slate-400">UNN Peer Network Expert Logistics Advisor</p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setChatMessages([
+                    {
+                      role: "model",
+                      content: "Hi there! I am **Adaugo**, your AI Dispatch Copilot for Runs UNN. 🦁\n\nI can help you price your running errands, generate highly optimized WhatsApp group-alert posts, advise on route consolidation, or explain student escrow protection on our campus.\n\nWhat campus run can I help you plan or optimize today?"
+                    }
+                  ])}
+                  className="p-2 text-xs font-mono text-slate-500 hover:text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <RefreshCw className="h-3 w-3" /> Clear Thread
+                </button>
+              </div>
+
+              {/* Chat Thread Area */}
+              <div className="h-[400px] overflow-y-auto bg-slate-950/70 rounded-2xl p-4 border border-slate-900 space-y-4 scrollbar-thin">
+                {chatMessages.map((msg, idx) => (
+                  <div 
+                    key={idx}
+                    className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
+                  >
+                    <div className="flex items-center gap-1 text-[10px] text-slate-500 font-mono mb-1">
+                      {msg.role === "user" ? (
+                        <>
+                          <span>You (Student)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-3 w-3 text-emerald-400 mr-0.5" />
+                          <span className="text-emerald-400 font-bold">Adaugo AI (Central Dispatch)</span>
+                        </>
+                      )}
+                    </div>
+                    
+                    <div className={`p-3.5 rounded-2xl max-w-[85%] text-xs md:text-sm shadow-md leading-relaxed ${
+                      msg.role === "user" 
+                        ? "bg-[#008751] text-white rounded-tr-none text-left" 
+                        : "bg-slate-900 text-slate-200 rounded-tl-none border border-slate-800 text-left"
+                    }`}>
+                      {renderFormattedText(msg.content)}
+                    </div>
+                  </div>
+                ))}
+                
+                {isChatLoading && (
+                  <div className="flex flex-col items-start">
+                    <div className="flex items-center gap-1 text-[10px] text-slate-500 font-mono mb-1">
+                      <RefreshCw className="h-3 w-3 text-emerald-400 animate-spin mr-0.5" />
+                      <span>Adaugo is planning route conditions...</span>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl rounded-tl-none text-slate-500 text-xs italic">
+                      Deducing surge multipliers, weather factors, and escrow logs...
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Suggested Queries */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-tight block">Suggested Topics:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: "₦ Carrying Water Rate", text: "How much should I charge or pay for fetching 4 jerrycans of borehole water to Slessor Hall 3rd floor?" },
+                    { label: "📲 WhatsApp Group Template", text: "Give me a high-engagement WhatsApp group-alert template for an urgent Biochemistry manual collection run from JGI to Bello hostel." },
+                    { label: "📦 Consolidated Bulk Runs", text: "Tell me more about bulk/batch route consolidations & how my friends can split fees from Chitis to Balewa." },
+                    { label: "🛡️ How Escrow Locks Money", text: "Explain how this application's peer escrow contract works for students. Is my coin safe?" }
+                  ].map((btn, bIdx) => (
+                    <button
+                      key={bIdx}
+                      onClick={() => handleSendChatMessage(btn.text)}
+                      disabled={isChatLoading}
+                      className="text-[10px] md:text-[11px] font-mono bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 px-2.5 py-1.5 rounded-lg transition-all text-left cursor-pointer hover:border-emerald-800/60"
+                    >
+                      💡 {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input Area */}
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendChatMessage();
+                }}
+                className="flex items-center gap-2 bg-slate-900 border border-slate-800 p-1.5 rounded-xl focus-within:border-[#008751]/50"
+              >
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask Adaugo about UNN rates, hostels, or templates..."
+                  disabled={isChatLoading}
+                  className="flex-1 bg-transparent text-xs md:text-sm text-slate-200 outline-hidden pl-3 py-2"
+                />
+                <button
+                  type="submit"
+                  disabled={isChatLoading || !chatInput.trim()}
+                  className="h-9 w-9 bg-[#008751] hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-600 rounded-lg flex items-center justify-center text-white transition-all cursor-pointer"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </form>
+
+            </div>
+
+            {/* AI Power Tools Sidebar Toolkit (5/12 Columns) */}
+            <div className="col-span-1 lg:col-span-5 space-y-6">
+              
+              {/* Tool 1: WhatsApp Broadcast Post Optimizer */}
+              <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5 shadow-lg space-y-4">
+                <div>
+                  <span className="text-[10px] font-mono uppercase text-emerald-400 font-extrabold flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" /> Conversion Booster
+                  </span>
+                  <h3 className="text-sm font-bold text-white uppercase font-mono mt-1">AI WhatsApp Broadcast Optimizer</h3>
+                  <p className="text-xs text-slate-400 mt-1">Convert lazy descriptions into gorgeous structural broadcasts with high hook conversions.</p>
+                </div>
+
+                <div className="space-y-3 font-mono text-xs">
+                  <div>
+                    <label className="text-slate-500 font-bold block mb-1">RAW ERRAND DETAILS:</label>
+                    <textarea
+                      value={enhancerRawInput}
+                      onChange={(e) => setEnhancerRawInput(e.target.value)}
+                      placeholder="E.g. print bio file at JGI building bring to slessor hall room 22 for 600 naira fast"
+                      rows={2}
+                      className="w-full bg-slate-900 border border-slate-800 focus:border-[#008751]/50 outline-hidden p-3 rounded-lg text-xs text-slate-200 leading-normal resize-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleEnhanceWhatsAppPost}
+                    disabled={isEnhancingAI || !enhancerRawInput.trim()}
+                    className="w-full bg-[#008751] hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-600 py-2.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2 cursor-pointer text-white"
+                  >
+                    {isEnhancingAI ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Enhancing Post...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-4 w-4" />
+                        Enhance Errand Post
+                      </>
+                    )}
+                  </button>
+
+                  {enhancerEnhancedOutput && (
+                    <div className="space-y-2 border-t border-slate-800/80 pt-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9.5px] text-slate-400 uppercase font-black">Generated Broadcast Draft:</span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(enhancerEnhancedOutput);
+                          }}
+                          className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 bg-[#008751]/10 px-2 py-1 rounded transition-all cursor-pointer border border-emerald-800/30"
+                        >
+                          📋 Copy to Clipboard
+                        </button>
+                      </div>
+                      
+                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 max-h-[160px] overflow-y-auto leading-relaxed text-slate-300 scrollbar-none whitespace-pre-wrap select-all text-[11px]">
+                        {enhancerEnhancedOutput}
+                      </div>
+
+                      <div className="text-[9.5px] text-slate-500 italic mt-1 font-sans">
+                        Generated by Gemini with dynamic location mapping & local escrow vouch code alerts automatically embedded.
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+
+              {/* Tool 2: AI Pricing Guard & Security Vouch Specs */}
+              <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5 shadow-lg space-y-4">
+                <div>
+                  <span className="text-[10px] font-mono uppercase text-indigo-400 font-extrabold flex items-center gap-1">
+                    <ShieldCheck className="h-3.5 w-3.5" /> Campus Guard Metrics
+                  </span>
+                  <h3 className="text-sm font-bold text-white uppercase font-mono mt-1">Live Campus Rate Guarantees</h3>
+                  <p className="text-xs text-slate-400 mt-1">AI-indexed standard fair compensation guide across common UNN transit routes.</p>
+                </div>
+
+                <div className="space-y-3 font-mono text-[10px] md:text-[11px] text-slate-300">
+                  <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                    <div>
+                      <span className="text-slate-400 block font-bold">🍔 Chitis / Franco &rarr; Balewa / Slessor</span>
+                      <span className="text-[9px] text-slate-500">Food Delivery Route. Time critical.</span>
+                    </div>
+                    <strong className="text-emerald-400 text-xs">₦500 - ₦650</strong>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                    <div>
+                      <span className="text-slate-400 block font-bold">🖨️ CEC / JGI &rarr; Hostel Areas</span>
+                      <span className="text-[9px] text-slate-500">Document Print/Bind Route. High friction.</span>
+                    </div>
+                    <strong className="text-emerald-400 text-xs">₦600 - ₦800</strong>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex justify-between items-center">
+                    <div>
+                      <span className="text-slate-400 block font-bold">🚰 Borehole Station &rarr; High Dorm Floors</span>
+                      <span className="text-[9px] text-slate-500">Water Hauling (Jerrycans). Severe effort.</span>
+                    </div>
+                    <strong className="text-emerald-400 text-xs text-right">₦1,000 - ₦1,500<br /><span className="text-[8px] text-amber-500 uppercase">+ Outage Surge</span></strong>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800/60 p-3 rounded-xl text-[10.5px] text-slate-400 font-sans leading-relaxed">
+                  📢 <strong>AI Security Guard Note:</strong> Always utilize the application&apos;s digital escrow system. Direct payments to unvetted runner bank accounts bypass student insurance and safety handshakes.
+                </div>
               </div>
 
             </div>
