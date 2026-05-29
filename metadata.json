@@ -1,0 +1,6 @@
+{
+  "name": "Runs Errand MVP",
+  "description": "An interactive campus peer-to-peer errand network simulator & product specification blueprint designed for Nigerian university campuses like UNN.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
